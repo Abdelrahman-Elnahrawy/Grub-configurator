@@ -85,7 +85,7 @@ grub-configurator
 | 💬 Subtitle | Text label below the title |
 | 📋 Boot Menu | Fonts, colors, icons, spacing |
 | ⏳ Progress Bar | Timeout bar color and size |
-| 🕐 Countdown | Remaining seconds label |
+| 🕐 Countdown | Remaining seconds text |
 | 🏷 Title Image | Optional logo at the top |
 | 🔻 Footer | Optional image at the bottom |
 
@@ -137,9 +137,9 @@ grub-configurator/
 | Distro | Status |
 |--------|--------|
 | Ubuntu / Pop!_OS | ✅ Tested |
-| Debian | ✅ Should work |
-| Arch Linux | ✅ Should work |
-| Fedora | ⚠️ Not tested |
+| Debian | ⚠️ Not tested |
+| Arch Linux | ⚠️ Not tested |
+| Fedora | ⚠️ Not supported |
 
 ---
 
