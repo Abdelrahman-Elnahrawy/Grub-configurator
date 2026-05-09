@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=GRUB Configurator
+GenericName=GRUB Boot Manager
+Comment=Manage GRUB2 themes, backgrounds, fonts and splash screens
+
+Exec=grub-configurator
+Icon=grub-configurator
+
+Terminal=false
+Categories=System;Settings;
+Keywords=grub;boot;theme;background;splash;plymouth;
+StartupNotify=true

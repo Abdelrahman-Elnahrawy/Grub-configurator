@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+
+  <vendor>GRUB Configurator</vendor>
+  <vendor_url>https://github.com/your/grub-configurator</vendor_url>
+
+  <action id="com.github.grub-configurator.run">
+    <description>Run GRUB Configurator</description>
+    <message>GRUB Configurator needs administrator privileges to modify boot configuration.</message>
+
+    <icon_name>preferences-system-boot</icon_name>
+
+    <defaults>
+      <!-- Active console session (local user at desktop) -->
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/python3</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+</policyconfig>
