@@ -330,6 +330,34 @@ SUDOEOF
     chmod 440 "$SUDOERS_DROP"
     success "Sudoers drop-in installed (display vars preserved under sudo)."
 
+    # ── Randomizer script & service unit ─────────────────────────────────────
+    local RANDOMIZER_LIB_DIR="/usr/local/lib/grub-configurator"
+    local RANDOMIZER_SCRIPT_SRC="$SCRIPT_DIR/grub-splash-randomizer"
+    local RANDOMIZER_SERVICE_SRC="$SCRIPT_DIR/grub-splash-randomizer.service"
+    local RANDOMIZER_SCRIPT_DEST="$RANDOMIZER_LIB_DIR/grub-splash-randomizer"
+    local RANDOMIZER_SERVICE_DEST="/etc/systemd/system/grub-splash-randomizer.service"
+    local SYSTEM_STATE_DIR="/etc/grub-configurator"
+
+    mkdir -p "$RANDOMIZER_LIB_DIR" "$SYSTEM_STATE_DIR"
+
+    if [[ -f "$RANDOMIZER_SCRIPT_SRC" ]]; then
+        cp "$RANDOMIZER_SCRIPT_SRC" "$RANDOMIZER_SCRIPT_DEST"
+        chmod 755 "$RANDOMIZER_SCRIPT_DEST"
+        success "Randomizer script installed at $RANDOMIZER_SCRIPT_DEST"
+    else
+        error "grub-splash-randomizer script not found — skipping randomizer install."
+    fi
+
+    if [[ -f "$RANDOMIZER_SERVICE_SRC" ]]; then
+        cp "$RANDOMIZER_SERVICE_SRC" "$RANDOMIZER_SERVICE_DEST"
+        chmod 644 "$RANDOMIZER_SERVICE_DEST"
+        systemctl daemon-reload
+        # Do NOT enable here — the user opts in via the GUI checkbox.
+        success "Randomizer service unit installed (disabled by default)."
+    else
+        error "grub-splash-randomizer.service not found — skipping service install."
+    fi
+
     echo -e "${GREEN}Installed successfully nyaw.${NC}"
     echo -e "Run with: ${AMBER}grub-configurator${NC}"
     echo -e "${AMBER}[TIP]${NC} Run WITHOUT sudo — privilege prompts happen automatically inside the app."
@@ -369,6 +397,24 @@ uninstall_app() {
     if [[ -f "/usr/share/polkit-1/actions/com.github.grub-configurator.policy" ]]; then
         rm -f "/usr/share/polkit-1/actions/com.github.grub-configurator.policy"
         success "Removed polkit policy."
+    fi
+
+    # Randomizer service
+    if systemctl is-enabled grub-splash-randomizer.service >/dev/null 2>&1; then
+        systemctl disable grub-splash-randomizer.service >/dev/null 2>&1 || true
+    fi
+    if [[ -f "/etc/systemd/system/grub-splash-randomizer.service" ]]; then
+        rm -f "/etc/systemd/system/grub-splash-randomizer.service"
+        systemctl daemon-reload
+        success "Removed randomizer service unit."
+    fi
+    if [[ -d "/usr/local/lib/grub-configurator" ]]; then
+        rm -rf "/usr/local/lib/grub-configurator"
+        success "Removed randomizer script."
+    fi
+    if [[ -d "/etc/grub-configurator" ]]; then
+        rm -rf "/etc/grub-configurator"
+        success "Removed system state directory."
     fi
 
     echo ""

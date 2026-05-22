@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+# grub-splash-randomizer
+# Picks a random Plymouth theme from favourites and sets it for the NEXT boot.
+# Runs at boot after filesystems are writable (After=local-fs.target).
+# ──────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+STATE_FILE="/etc/grub-configurator/state.json"
+PLYMOUTH_THEMES_DIR="/usr/share/plymouth/themes"
+ALTERNATIVES_LINK="$PLYMOUTH_THEMES_DIR/default.plymouth"
+LOG_TAG="grub-splash-randomizer"
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+log() { logger -t "$LOG_TAG" "$*" 2>/dev/null || echo "$LOG_TAG: $*" >&2; }
+
+# ── 1. State file ─────────────────────────────────────────────────────────────
+if [[ ! -f "$STATE_FILE" ]]; then
+    log "State file not found — nothing to do."
+    exit 0
+fi
+
+# ── 2. Parse favourites with python3 (handles multi-line JSON) ────────────────
+mapfile -t favorites < <(
+    python3 - "$STATE_FILE" <<'PYEOF'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    for f in data.get("splash_favorites", []):
+        print(f)
+except Exception:
+    pass
+PYEOF
+)
+
+if [[ ${#favorites[@]} -eq 0 ]]; then
+    log "No favourites in state file — nothing to do."
+    exit 0
+fi
+
+# ── 3. Filter to themes that exist on disk ────────────────────────────────────
+valid=()
+for theme in "${favorites[@]}"; do
+    if [[ -d "$PLYMOUTH_THEMES_DIR/$theme" ]]; then
+        valid+=("$theme")
+    fi
+done
+
+if [[ ${#valid[@]} -eq 0 ]]; then
+    log "None of the favourites exist on disk — nothing to do."
+    exit 0
+fi
+
+# ── 4. Pick a random theme ────────────────────────────────────────────────────
+chosen="${valid[$(( RANDOM % ${#valid[@]} ))]}"
+log "Chose '$chosen' from ${#valid[@]} favourites."
+
+# ── 5. Find the theme's .plymouth file ───────────────────────────────────────
+theme_file="$PLYMOUTH_THEMES_DIR/$chosen/$chosen.plymouth"
+if [[ ! -f "$theme_file" ]]; then
+    # Some themes use a different filename — find it
+    theme_file="$(find "$PLYMOUTH_THEMES_DIR/$chosen" -name "*.plymouth" | head -1)"
+fi
+if [[ -z "$theme_file" || ! -f "$theme_file" ]]; then
+    log "ERROR: No .plymouth file found for '$chosen'."
+    exit 1
+fi
+
+# ── 6. Set the theme by rewriting the symlink directly ───────────────────────
+# Bypass update-alternatives entirely — it needs /etc writable in a specific
+# way that conflicts with early-boot ordering on some systems.
+ln -sf "$theme_file" "$ALTERNATIVES_LINK"
+log "Symlink set: $ALTERNATIVES_LINK -> $theme_file"
+
+# ── 7. Rebuild initramfs so the change takes effect on next boot ──────────────
+if command -v update-initramfs &>/dev/null; then
+    log "Rebuilding initramfs..."
+    update-initramfs -u -k "$(uname -r)"
+    log "Done — '$chosen' will show on next boot."
+elif command -v mkinitcpio &>/dev/null; then
+    mkinitcpio -P
+    log "Done — '$chosen' will show on next boot."
+elif command -v dracut &>/dev/null; then
+    dracut --force
+    log "Done — '$chosen' will show on next boot."
+else
+    log "WARNING: No initramfs tool found — theme symlink set but initramfs not rebuilt."
+fi

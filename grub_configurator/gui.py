@@ -358,11 +358,16 @@ class FontRow(QWidget):
 # TAB 1 — SPLASH SCREEN
 # ══════════════════════════════════════════════════════════════════════════════
 class SplashTab(QWidget):
-    def __init__(self, status_cb, parent=None):
+    def __init__(self, status_cb, state: dict, parent=None):
         super().__init__(parent)
         self.status = status_cb
-        self.themes = backend.list_plymouth_themes()
+        self.state = state
+        self.themes = [
+            t for t in backend.list_plymouth_themes()
+            if backend.get_plymouth_theme_frames(t)[0]
+        ]
         self.active = backend.get_active_plymouth_theme()
+        self.favorites = [t for t in self.state.get("splash_favorites", []) if t in self.themes]
         self._anim_timer = None
         self._anim_frames = []
         self._anim_idx = 0
@@ -377,49 +382,125 @@ class SplashTab(QWidget):
         root.addWidget(_label("SPLASH SCREEN", "heading"))
         root.addWidget(_label("Select a Plymouth boot splash theme.", "sub"))
         root.addWidget(_hline())
+
         content = QHBoxLayout()
+        content.setSpacing(18)
+
+        # Installed themes list
         left = QVBoxLayout()
         left.addWidget(_label("Installed Plymouth themes:"))
         self.lst = QListWidget()
-        self.lst.setMinimumWidth(300)
-        for t in self.themes:
-            item = QListWidgetItem(t)
-            if t == self.active:
-                item.setForeground(QColor(AMBER))
-                item.setText(f"★ {t}")
-            self.lst.addItem(item)
-        if not self.themes:
-            self.lst.addItem("(no Plymouth themes found)")
+        self.lst.setMinimumWidth(280)
         self.lst.currentItemChanged.connect(self._on_select)
         left.addWidget(self.lst, 1)
+
+        fav_row = QHBoxLayout()
+        self.fav_btn = QPushButton("☆ Add favorite")
+        self.fav_btn.clicked.connect(self._toggle_favorite)
+        self.fav_btn.setEnabled(False)
+        fav_row.addWidget(self.fav_btn)
+        fav_row.addStretch()
+        left.addLayout(fav_row)
+
         active_row = QHBoxLayout()
         active_row.addWidget(_label("Active:"))
         self.active_lbl = _label(self.active or "unknown", "badge")
         active_row.addWidget(self.active_lbl)
         active_row.addStretch()
         left.addLayout(active_row)
-        content.addLayout(left)
+
+        content.addLayout(left, 1)
+
+        # Favorite themes list
+        middle = QVBoxLayout()
+        middle.addWidget(_label("Favorite themes:"))
+        self.fav_lst = QListWidget()
+        self.fav_lst.setMinimumWidth(260)
+        self.fav_lst.currentItemChanged.connect(self._on_select)
+        middle.addWidget(self.fav_lst, 1)
+        self.fav_count_lbl = _label(f"{len(self.favorites)} favorites", "sub")
+        count_row = QHBoxLayout()
+        count_row.addWidget(self.fav_count_lbl)
+        count_row.addStretch()
+        middle.addLayout(count_row)
+        content.addLayout(middle, 1)
+
+        # Preview panel
         right = QVBoxLayout()
         right.addWidget(_label("Preview:"))
         self.preview = ImagePreview("No preview available", 180, 300)
         right.addWidget(self.preview)
+        preview_opts = QHBoxLayout()
+        preview_opts.addWidget(_label("Duration:"))
         self.preview_spin = QSpinBox()
+        self.preview_spin.setRange(1, 15)
         self.preview_spin.setValue(5)
-        right.addStretch()
-        content.addLayout(right, 1)
+        self.preview_spin.setFixedWidth(64)
+        preview_opts.addWidget(self.preview_spin)
+        preview_opts.addStretch()
+        right.addLayout(preview_opts)
+        content.addLayout(right, 2)
+
         root.addLayout(content, 1)
         root.addWidget(_hline())
+
         btn_apply = QPushButton("✓  Set Plymouth Theme")
         btn_apply.setObjectName("primary")
         btn_apply.clicked.connect(self._apply)
         root.addWidget(btn_apply)
 
-    def _on_select(self, item):
+        self._refresh_theme_list()
+        self._refresh_favorite_list()
+
+    def _refresh_theme_list(self):
+        self.lst.clear()
+        if not self.themes:
+            self.lst.addItem("(no Plymouth themes found)")
+            return
+        for t in self.themes:
+            label = t
+            if t in self.favorites:
+                label = f"♥ {label}"
+            if t == self.active:
+                label = f"★ {label}"
+            item = QListWidgetItem(label)
+            item.setForeground(QColor(AMBER)) if t == self.active else None
+            self.lst.addItem(item)
+
+    def _refresh_favorite_list(self):
+        self.fav_lst.clear()
+        if not self.favorites:
+            self.fav_lst.addItem("(no favorites yet)")
+            self.fav_count_lbl.setText("0 favorites")
+            return
+        for t in self.favorites:
+            item = QListWidgetItem(f"★ {t}")
+            self.fav_lst.addItem(item)
+        self.fav_count_lbl.setText(f"{len(self.favorites)} favorites")
+
+    def _current_theme_name(self, item):
+        if not item:
+            return ""
+        import re
+        return re.sub(r'^[^A-Za-z0-9_-]+', '', item.text()).strip()
+
+    def _update_fav_button(self, theme_name: str):
+        if not theme_name:
+            self.fav_btn.setEnabled(False)
+            self.fav_btn.setText("☆ Add favorite")
+            return
+        self.fav_btn.setEnabled(True)
+        if theme_name in self.favorites:
+            self.fav_btn.setText("★ Remove favorite")
+        else:
+            self.fav_btn.setText("☆ Add favorite")
+
+    def _on_select(self, item, previous=None):
         if not item:
             return
-        name = item.text().lstrip("★ ")
+        name = self._current_theme_name(item)
+        self._update_fav_button(name)
         self._stop_animation()
-        # Show static preview.png if available
         for d in backend.SPLASH_DIRS:
             p = d / name / "preview.png"
             if p.exists():
@@ -427,7 +508,6 @@ class SplashTab(QWidget):
                 break
         else:
             self.preview.clear()
-        # Auto-play animated preview in the box
         self._start_animation(name)
 
     def _stop_animation(self):
@@ -446,8 +526,11 @@ class SplashTab(QWidget):
             return
 
         import re as _re
-        frames = sorted(frames, key=lambda p: int(_re.search(r'\d+', p.stem).group()) if _re.search(r'\d+', p.stem) else 0)
-        self._anim_frames = [QPixmap(str(f)) for f in frames]        
+        frames = sorted(
+            frames,
+            key=lambda p: int(_re.search(r"\d+", p.stem).group()) if _re.search(r"\d+", p.stem) else 0
+        )
+        self._anim_frames = [QPixmap(str(f)) for f in frames]
         self._anim_frames = [p for p in self._anim_frames if not p.isNull()]
         if not self._anim_frames:
             self.status(f"Could not load frames for '{theme_name}'", False)
@@ -464,32 +547,52 @@ class SplashTab(QWidget):
         self._anim_timer.start()
 
     def _next_frame(self):
-            if self._anim_shown >= self._anim_total:
-                self._anim_idx = 0
-                self._anim_shown = 0
-            pix = self._anim_frames[self._anim_idx % len(self._anim_frames)]
-            self.preview.set_image_pixmap(pix)
-            self._anim_idx += 1
-            self._anim_shown += 1
+        if self._anim_shown >= self._anim_total:
+            self._anim_idx = 0
+            self._anim_shown = 0
+        pix = self._anim_frames[self._anim_idx % len(self._anim_frames)]
+        self.preview.set_image_pixmap(pix)
+        self._anim_idx += 1
+        self._anim_shown += 1
 
-    def _preview(self):
-        item = self.lst.currentItem()
+    def _toggle_favorite(self):
+        item = self.lst.currentItem() or self.fav_lst.currentItem()
         if not item:
             self.status("Select a theme first", False)
             return
-        self._stop_animation()
-        self._start_animation(item.text().lstrip("★ "))
+        theme = self._current_theme_name(item)
+        if not theme or theme not in self.themes:
+            self.status("Selected theme is unavailable", False)
+            return
+        if theme in self.favorites:
+            self.favorites.remove(theme)
+            self.status(f"Removed '{theme}' from favorites", True)
+        else:
+            self.favorites.append(theme)
+            self.status(f"Added '{theme}' to favorites", True)
+        self._refresh_theme_list()
+        self._refresh_favorite_list()
+        self._update_fav_button(theme)
+        # Keep the system-wide state file in sync so the boot randomizer can read it.
+        w = Worker(backend.sync_favorites_to_system, list(self.favorites))
+        w.signals.done.connect(lambda ok, msg: (
+            log.debug("sync_favorites_to_system: %s", msg)
+        ))
+        QThreadPool.globalInstance().start(w)
 
     def _apply(self):
-        item = self.lst.currentItem()
+        item = self.lst.currentItem() or self.fav_lst.currentItem()
         if not item:
             self.status("Select a theme first", False)
             return
-        name = item.text().lstrip("★ ")
+        name = self._current_theme_name(item)
         w = Worker(backend.set_plymouth_theme, name)
         w.signals.done.connect(lambda ok, msg: self.status(msg, ok))
         QThreadPool.globalInstance().start(w)
         self.status(f"Applying Plymouth theme '{name}'…", True)
+
+    def get_state(self) -> dict:
+        return {"splash_favorites": self.favorites}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — THEMES (with sub-tabs for each section)
@@ -983,6 +1086,7 @@ class SettingsTab(QWidget):
         super().__init__(parent)
         self.status = status_cb
         self.screen_res = screen_res
+        self.randomizer_enabled = backend.is_splash_randomizer_enabled()
         self._build(state)
 
     def _build(self, state: dict):
@@ -1018,6 +1122,13 @@ class SettingsTab(QWidget):
         btn_detect = QPushButton("⟳ Re-detect")
         btn_detect.clicked.connect(self._redetect)
         gl.addWidget(btn_detect, 1,2)
+        
+        # Splash randomizer toggle
+        self.randomizer_check = QCheckBox("Enable splash screen randomizer")
+        self.randomizer_check.setChecked(self.randomizer_enabled)
+        self.randomizer_check.stateChanged.connect(self._toggle_randomizer)
+        gl.addWidget(self.randomizer_check, 2, 0, 1, 2)
+        
         root.addWidget(g)
 
         # Show current theme path
@@ -1038,6 +1149,31 @@ class SettingsTab(QWidget):
             idx = 1
         self.res_combo.setCurrentIndex(idx)
         self.status(f"Detected: {res}", True)
+
+    def _toggle_randomizer(self):
+        enabled = self.randomizer_check.isChecked()
+        if enabled:
+            w = Worker(backend.enable_splash_randomizer)
+            def _on_enable(ok, msg, chk=self.randomizer_check):
+                self.status(msg, ok)
+                self.randomizer_enabled = ok
+                if not ok:
+                    chk.blockSignals(True)
+                    chk.setChecked(False)
+                    chk.blockSignals(False)
+            w.signals.done.connect(_on_enable)
+        else:
+            w = Worker(backend.disable_splash_randomizer)
+            def _on_disable(ok, msg, chk=self.randomizer_check):
+                self.status(msg, ok)
+                if ok:
+                    self.randomizer_enabled = False
+                else:
+                    chk.blockSignals(True)
+                    chk.setChecked(True)
+                    chk.blockSignals(False)
+            w.signals.done.connect(_on_disable)
+        QThreadPool.globalInstance().start(w)
 
     def get_timeout(self) -> int:
         return self.timeout_spin.value()
@@ -1114,7 +1250,7 @@ class MainWindow(QMainWindow):
 
         # tabs
         self.tabs = QTabWidget()
-        self.splash_tab   = SplashTab(self._status)
+        self.splash_tab   = SplashTab(self._status, self._state)
         self.themes_tab   = ThemesTab(self._cfg, self._status, self._screen_res)
         self.settings_tab = SettingsTab(self._status, self._screen_res, self._state)
         self.log_tab      = LogTab()
@@ -1174,6 +1310,7 @@ class MainWindow(QMainWindow):
         self.themes_tab.sync_all()
         state = {}
         state.update(self.settings_tab.get_state())
+        state.update(self.splash_tab.get_state())
         state["theme_cfg"] = self._cfg.to_dict()
         backend.save_state(state)
 

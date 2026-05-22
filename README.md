@@ -1,5 +1,5 @@
 # Grub-Configurator
-#### Video Demo: [ Demo ](https://drive.google.com/file/d/1bt87TUDWBGSdsUQt75l-IhmGWCxbRmAZ/view?usp=sharing)
+#### Video Demo:  <URL HERE>
 #### Description:
 A cross-distro PyQt6 GUI for managing GRUB2 themes, backgrounds, fonts, and Plymouth splash screens — with graphical privilege elevation via polkit, no terminal required.
 

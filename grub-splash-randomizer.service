@@ -1,0 +1,19 @@
+[Unit]
+Description=GRUB Configurator – Random Plymouth Splash Screen
+Documentation=https://github.com/yourname/grub-configurator
+After=local-fs.target sysinit.target
+Requires=local-fs.target
+ConditionPathExists=/usr/local/lib/grub-configurator/grub-splash-randomizer
+ConditionPathExists=/etc/grub-configurator/state.json
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/lib/grub-configurator/grub-splash-randomizer
+RemainAfterExit=no
+# No ProtectSystem — the script needs to write to /etc and /boot
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

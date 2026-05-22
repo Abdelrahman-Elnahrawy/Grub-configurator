@@ -43,6 +43,7 @@ BUNDLED_THEME_DIR  = Path(__file__).parent.parent / "grub_configurator_theme"
 
 SPLASH_DIRS        = [Path("/usr/share/plymouth/themes")]
 STATE_FILE         = Path.home() / ".config" / "grub-configurator" / "state.json"
+STATE_VERSION      = 1
 
 UPDATE_GRUB_CMDS   = [
     ["update-grub"],
@@ -1056,7 +1057,16 @@ def load_state() -> dict:
     try:
         if STATE_FILE.exists():
             state = json.loads(STATE_FILE.read_text())
-            if state.get("_version") != STATE_VERSION:
+            version = state.get("_version")
+            if version is None:
+                # Legacy state format: preserve existing values and upgrade in-place.
+                state["_version"] = STATE_VERSION
+                try:
+                    STATE_FILE.write_text(json.dumps(state, indent=2))
+                except Exception:
+                    pass
+                return state
+            if version != STATE_VERSION:
                 log.info("State version mismatch — resetting to defaults")
                 STATE_FILE.unlink()
                 return {}
@@ -1075,3 +1085,117 @@ def save_state(state: dict) -> bool:
     except Exception as e:
         log.error("Could not save state: %s", e)
         return False
+
+
+# ── Splash randomizer service ────────────────────────────────────────────────
+#
+# Design notes:
+#   • The randomizer runs as a SYSTEM-level systemd service (not --user).
+#     The app runs as root via pkexec, so --user would point at root's session
+#     which is never lingering — the service would never actually start at boot.
+#   • The bash script lives at /usr/local/lib/grub-configurator/grub-splash-randomizer.
+#   • The service unit lives at /etc/systemd/system/grub-splash-randomizer.service.
+#   • Favourites are written to /etc/grub-configurator/state.json (system-wide)
+#     so the script (running as root at boot, with no user session) can read them.
+
+_RANDOMIZER_SCRIPT_DEST = Path("/usr/local/lib/grub-configurator/grub-splash-randomizer")
+_RANDOMIZER_SCRIPT_SRC  = Path(__file__).parent.parent / "grub-splash-randomizer"
+_SERVICE_UNIT_DEST      = Path("/etc/systemd/system/grub-splash-randomizer.service")
+_SERVICE_UNIT_SRC       = Path(__file__).parent.parent / "grub-splash-randomizer.service"
+_SYSTEM_STATE_FILE      = Path("/etc/grub-configurator/state.json")
+
+
+def sync_favorites_to_system(favorites: list[str]) -> tuple[bool, str]:
+    """
+    Write the current favourites list into the system-wide state file at
+    /etc/grub-configurator/state.json so the boot-time randomizer script
+    (which runs as root with no user session) can read it.
+    Called automatically whenever favourites change in the GUI.
+    """
+    try:
+        _SYSTEM_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        existing: dict = {}
+        if _SYSTEM_STATE_FILE.exists():
+            try:
+                existing = json.loads(_SYSTEM_STATE_FILE.read_text())
+            except Exception:
+                existing = {}
+        existing["splash_favorites"] = favorites
+        _SYSTEM_STATE_FILE.write_text(json.dumps(existing, indent=2))
+        return True, f"Favourites synced to {_SYSTEM_STATE_FILE}"
+    except Exception as e:
+        return False, str(e)
+
+
+def is_splash_randomizer_enabled() -> bool:
+    """Return True when the system service is enabled (will run at next boot)."""
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-enabled", "grub-splash-randomizer.service"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.stdout.strip() == "enabled"
+    except Exception as e:
+        log.warning("Could not check randomizer status: %s", e)
+        return False
+
+
+def enable_splash_randomizer() -> tuple[bool, str]:
+    """
+    Install the randomizer script + service unit and enable the system service.
+    The service runs once at each boot (Type=oneshot, WantedBy=multi-user.target).
+    Requires root (the app is already running as root via pkexec).
+    """
+    # 1. Install the bash script
+    if not _RANDOMIZER_SCRIPT_SRC.exists():
+        return False, (
+            f"Randomizer script not found at {_RANDOMIZER_SCRIPT_SRC}. "
+            "Make sure grub-splash-randomizer is present in the app directory."
+        )
+    try:
+        _RANDOMIZER_SCRIPT_DEST.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_RANDOMIZER_SCRIPT_SRC, _RANDOMIZER_SCRIPT_DEST)
+        _RANDOMIZER_SCRIPT_DEST.chmod(0o755)
+    except OSError as e:
+        return False, f"Could not install randomizer script: {e}"
+
+    # 2. Install the service unit
+    if not _SERVICE_UNIT_SRC.exists():
+        return False, (
+            f"Service unit not found at {_SERVICE_UNIT_SRC}. "
+            "Make sure grub-splash-randomizer.service is present in the app directory."
+        )
+    try:
+        shutil.copy2(_SERVICE_UNIT_SRC, _SERVICE_UNIT_DEST)
+        _SERVICE_UNIT_DEST.chmod(0o644)
+    except OSError as e:
+        return False, f"Could not install service unit: {e}"
+
+    # 3. Reload systemd and enable the service
+    try:
+        subprocess.run(["systemctl", "daemon-reload"],
+                       check=True, capture_output=True)
+        subprocess.run(["systemctl", "enable", "grub-splash-randomizer.service"],
+                       check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.decode(errors="replace").strip() if e.stderr else str(e)
+        return False, f"systemctl failed: {err}"
+
+    return True, "Splash randomizer enabled — a random favourite will be set on each boot."
+
+
+def disable_splash_randomizer() -> tuple[bool, str]:
+    """
+    Disable and remove the system service.
+    Leaves the script in place so re-enabling is instant.
+    """
+    try:
+        subprocess.run(["systemctl", "disable", "grub-splash-randomizer.service"],
+                       check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.decode(errors="replace").strip() if e.stderr else str(e)
+        return False, f"Could not disable service: {err}"
+    except Exception as e:
+        return False, str(e)
+
+    return True, "Splash randomizer disabled."
