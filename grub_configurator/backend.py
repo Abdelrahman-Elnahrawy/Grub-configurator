@@ -535,10 +535,10 @@ class ThemeConfig:
 desktop-image: "{self.background_file}"
 title-text: ""
 terminal-font: "{self.terminal_font}"
-terminal-left:   "{self.terminal_left}"
-terminal-top:    "{self.terminal_top}"
-terminal-width:  "{self.terminal_width}"
-terminal-height: "{self.terminal_height}"
+terminal-left:   "0%"
+terminal-top:    "0%"
+terminal-width:  "100%"
+terminal-height: "100%"
 terminal-border: "0"
 
 # ============================================================
