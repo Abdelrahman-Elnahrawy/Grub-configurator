@@ -57,29 +57,62 @@ install_python_deps() {
 
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update -qq
-		apt-get install -y \
-			python3 \
-			python3-pip \
-			python3-pyqt6 \
-			grub-common \
-			plymouth \
-			plymouth-themes \
-			plymouth-x11 \
-			grub-emu
+        apt-get install -y \
+            python3 \
+            python3-pip \
+            python3-pyqt6 \
+            python3-tk \
+            pipx \
+            grub-common \
+            plymouth \
+            plymouth-themes \
+            plymouth-x11 \
+            qemu-system-x86 \
+            qemu-utils \
+            ovmf \
+            mtools \
+            xorriso
 
     elif command -v pacman >/dev/null 2>&1; then
-	pacman -Sy --noconfirm \
-		python \
-		python-pip \
-		python-pyqt6 \
-		grub \
-		plymouth \
-		plymouth-x11 \
-		grub-emu
+        pacman -Sy --noconfirm \
+            python \
+            python-pip \
+            python-pyqt6 \
+            tk \
+            python-pipx \
+            grub \
+            plymouth \
+            qemu-full \
+            edk2-ovmf \
+            mtools \
+            xorriso
 
     else
         error "Unsupported package manager."
         exit 1
+    fi
+
+    # ── Install grub2-theme-preview via pipx (as the real user) ──────
+    # Determine the real (non-root) user who invoked sudo
+    local REAL_USER="${SUDO_USER:-}"
+    if [[ -z "$REAL_USER" ]]; then
+        error "Cannot determine the real user (SUDO_USER is unset). Run installer with sudo, not as root directly."
+        exit 1
+    fi
+
+    local REAL_HOME
+    REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+
+    info "Installing grub2-theme-preview via pipx for user '$REAL_USER'..."
+    if sudo -u "$REAL_USER" pipx install grub2-theme-preview 2>/dev/null || \
+       sudo -u "$REAL_USER" \
+           env HOME="$REAL_HOME" \
+           PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+           pipx install grub2-theme-preview; then
+        success "grub2-theme-preview installed at $REAL_HOME/.local/bin/grub2-theme-preview"
+    else
+        error "grub2-theme-preview install failed. Theme preview will be unavailable."
+        info  "You can install it manually later: pipx install grub2-theme-preview"
     fi
 }
 
@@ -468,6 +501,17 @@ install_python_deps
 
 # Install application
 install_app
+
+# Make GRUB theme directory world-readable so grub2-theme-preview
+# (runs as the real user) can read theme files for preview.
+THEME_DIR="/boot/grub/themes/grub-configurator"
+if [[ -d "$THEME_DIR" ]]; then
+    chmod -R a+rX "$THEME_DIR"
+    success "Theme directory permissions set (world-readable for preview)."
+else
+    info "Theme directory not yet created (app creates it on first run)."
+    info "After first launch, run: sudo chmod -R a+rX $THEME_DIR"
+fi
 
 echo ""
 success "Installed successfully!"
