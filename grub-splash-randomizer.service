@@ -1,7 +1,9 @@
 [Unit]
 Description=GRUB Configurator – Random Plymouth Splash Screen
 Documentation=https://github.com/yourname/grub-configurator
-After=local-fs.target sysinit.target
+DefaultDependencies=no
+Before=shutdown.target reboot.target halt.target
+After=local-fs.target
 Requires=local-fs.target
 ConditionPathExists=/usr/local/lib/grub-configurator/grub-splash-randomizer
 ConditionPathExists=/etc/grub-configurator/state.json
@@ -16,4 +18,4 @@ PrivateTmp=yes
 NoNewPrivileges=yes
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=halt.target reboot.target shutdown.target
