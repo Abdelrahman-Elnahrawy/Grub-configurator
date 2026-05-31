@@ -765,14 +765,13 @@ def list_plymouth_themes() -> list[str]:
 
 def get_active_plymouth_theme() -> str:
     try:
-        r = subprocess.run(
-            ["plymouth-set-default-theme"],
-            capture_output=True, text=True, timeout=5
-        )
-        return r.stdout.strip()
+        link = Path("/usr/share/plymouth/themes/default.plymouth")
+        if link.is_symlink():
+            # e.g. /usr/share/plymouth/themes/spinner/spinner.plymouth -> "spinner"
+            return link.resolve().parent.name
     except Exception:
-        return ""
-
+        pass
+    return ""
 
 def set_plymouth_theme(theme_name: str) -> tuple[bool, str]:
     exe = _find_plymouth_set_theme()
@@ -788,16 +787,29 @@ def set_plymouth_theme(theme_name: str) -> tuple[bool, str]:
     alternatives = shutil.which("update-alternatives")
     if alternatives and Path("/usr/share/plymouth/themes").exists():
         try:
+            theme_file = f"/usr/share/plymouth/themes/{theme_name}/{theme_name}.plymouth"
+            symlink = "/usr/share/plymouth/themes/default.plymouth"
+
+            # Register theme as alternative if not already listed
+            result = subprocess.run(
+                [alternatives, "--list", "default.plymouth"],
+                capture_output=True, text=True
+            )
+            registered = result.stdout.strip().splitlines()
+            if theme_file not in registered:
+                subprocess.run(
+                    [alternatives, "--install", symlink, "default.plymouth", theme_file, "60"],
+                    check=True
+                )
+
             subprocess.run(
-                [alternatives, "--set", "default.plymouth",
-                 f"/usr/share/plymouth/themes/{theme_name}/{theme_name}.plymouth"],
+                [alternatives, "--set", "default.plymouth", theme_file],
                 check=True
             )
             subprocess.run(["update-initramfs", "-u"], check=True)
             return True, f"Plymouth theme set to '{theme_name}' (via update-alternatives)"
         except subprocess.CalledProcessError as e:
             return False, str(e)
-
     return False, "No Plymouth set-default mechanism found."
 def find_preview_tool() -> Optional[str]:
     """
